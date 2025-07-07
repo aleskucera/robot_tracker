@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Robot Tracking Dashboard</title>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
+    <script
+      type="text/javascript"
+      src="https://cdn.jsdelivr.net/npm/toastify-js"
+    ></script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
+  <body data-apikey="{{ apikey }}">
+    <div id="map" class="h-screen"></div>
+
+    <!-- Sidebar -->
+    <div id="sidebar" class="bg-white dark:bg-gray-800 shadow-2xl">
+      <div class="p-6">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-white mb-6">
+          Robot Dashboard
+        </h1>
+
+        <!-- Robot Selector -->
+        <div id="robot-selector-container" class="mb-6">
+          <label
+            for="robot-selector"
+            class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >Select Robot:</label
+          >
+          <select
+            id="robot-selector"
+            class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">-- No Robots Online --</option>
+          </select>
+        </div>
+
+        <!-- Follow Button -->
+        <button
+          id="follow-btn"
+          class="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 font-semibold mb-6"
+        >
+          Following Robot
+        </button>
+
+        <!-- Robot Details -->
+        <div id="robot-status-sections" class="space-y-4">
+          <h2
+            id="robot-details-header"
+            class="text-xl font-semibold text-gray-800 dark:text-white border-b border-gray-200 dark:border-gray-600 pb-2"
+          >
+            Select a robot to view data
+          </h2>
+
+          <div class="status-section">
+            <strong class="block text-sm text-gray-600 dark:text-gray-400"
+              >Last Signal:</strong
+            >
+            <span
+              id="last-seen"
+              class="text-lg font-bold text-gray-800 dark:text-white"
+              >N/A</span
+            >
+          </div>
+
+          <div class="status-section">
+            <strong class="block text-sm text-gray-600 dark:text-gray-400">
+              Current Mission Progress:
+            </strong>
+            <div
+              id="mission-progress"
+              class="text-sm text-gray-800 dark:text-white"
+            >
+              <!-- Mission info will be populated here -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar Toggle Button -->
+    <button
+      id="sidebar-toggle"
+      class="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg p-2 text-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
+    >
+      ☰
+    </button>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+  </body>
+</html>
