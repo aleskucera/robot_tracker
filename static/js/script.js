@@ -324,7 +324,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     },
 
-    // REWRITTEN: Renders details and manages which robot's markers are visible.
     renderSelectedRobotDetails() {
       const robotId = this.state.selectedRobotId;
       const data = this.state.allRobotsData[robotId];

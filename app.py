@@ -10,7 +10,7 @@ from flask import render_template
 from flask import request
 from flask_socketio import SocketIO
 
-INACTIVITY_TIMEOUT = 300  # 5 minutes
+INACTIVITY_TIMEOUT = 120  # 2 minutes
 
 # --- Initialization ---
 load_dotenv()
@@ -64,6 +64,10 @@ def update_data():
         mission_payload = data.get("mission") or {}
         has_waypoints_in_payload = "waypoints" in mission_payload and isinstance(
             mission_payload.get("waypoints"), list
+        )
+        # Check also if the waypoints are not empty list
+        has_waypoints_in_payload = (
+            has_waypoints_in_payload and len(mission_payload["waypoints"]) > 0
         )
 
         # 1. Handle mission registration or overwrite.
@@ -142,7 +146,7 @@ def handle_disconnect():
 
 def cleanup_inactive_robots():
     while True:
-        eventlet.sleep(10)
+        eventlet.sleep(2)
         now = time.time()
         with state_lock:
             to_delete = [
@@ -158,4 +162,4 @@ def cleanup_inactive_robots():
 
 if __name__ == "__main__":
     eventlet.spawn(cleanup_inactive_robots)
-    socketio.run(app, debug=True, host="0.0.0.0", port=5000)
+    socketio.run(app, debug=True, host="0.0.0.0", port=5001)

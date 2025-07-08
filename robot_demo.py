@@ -5,7 +5,8 @@ import time
 import requests
 
 # --- Configuration ---
-API_URL = "http://127.0.0.1:5000/api/update_data"
+# API_URL = "http://45.91.169.180:5001/api/update_data"
+API_URL = "http://localhost:5001/api/update_data"
 ROBOT_ID = "helhest"  # Changed to match your example
 
 # --- Simulation Parameters ---
