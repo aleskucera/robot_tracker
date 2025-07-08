@@ -274,8 +274,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return svg;
     },
 
-    // REVISED updateRobotMarker function
+    // Update the robot marker only for the selected robot
     updateRobotMarker(robotId) {
+      if (robotId !== this.state.selectedRobotId) {
+        return;
+      }
       const data = this.state.allRobotsData[robotId];
       if (!data || !data.position || !data.position.gps || !data.position.ekf) {
         return;
@@ -284,104 +287,73 @@ document.addEventListener("DOMContentLoaded", () => {
       const ekfCoords = [data.position.ekf.lat, data.position.ekf.lon];
       const gpsCoords = [data.position.gps.lat, data.position.gps.lon];
 
-      // EKF Marker icon (remains fully opaque, so we don't pass a second argument)
       const ekfIcon = L.divIcon({
-        html: this.createPinSVG("#28a745", 0.7), // The color is green for EKF
+        html: this.createPinSVG("#28a745", 0.7),
         className: "vector-pin-marker",
         iconSize: [28, 40],
         iconAnchor: [14, 40],
       });
 
-      // GPS Marker icon (we pass 0.7 for the opacity)
       const gpsIcon = L.divIcon({
-        html: this.createPinSVG("#007bff", 0.7), // The color is blue for GPS
+        html: this.createPinSVG("#007bff", 0.7),
         className: "vector-pin-marker",
         iconSize: [28, 40],
         iconAnchor: [14, 40],
       });
 
-      // --- The rest of the function remains exactly the same ---
+      // Since we're recreating markers each time, initialize the structure
       if (!this.robotMarkers[robotId]) {
         this.robotMarkers[robotId] = { gps: null, ekf: null };
       }
       const markers = this.robotMarkers[robotId];
 
+      // Create or update EKF marker
       if (markers.ekf) {
-        markers.ekf.setLatLng(ekfCoords).setIcon(ekfIcon);
+        markers.ekf.setLatLng(ekfCoords);
       } else {
-        markers.ekf = L.marker(ekfCoords, { icon: ekfIcon }).bindPopup(
-          `<b>${robotId} (EKF)</b>`,
-        );
+        markers.ekf = L.marker(ekfCoords, { icon: ekfIcon })
+          .bindPopup(`<b>${robotId} (EKF)</b>`)
+          .addTo(this.map);
       }
 
       if (markers.gps) {
-        markers.gps.setLatLng(gpsCoords).setIcon(gpsIcon);
+        markers.gps.setLatLng(gpsCoords);
       } else {
-        markers.gps = L.marker(gpsCoords, {
-          icon: gpsIcon,
-          zIndexOffset: -100,
-        }).bindPopup(`<b>${robotId} (GPS)</b>`);
+        markers.gps = L.marker(gpsCoords, { icon: gpsIcon, zIndexOffset: -100 })
+          .bindPopup(`<b>${robotId} (GPS)</b>`)
+          .addTo(this.map);
       }
     },
 
+    // Render details and recreate markers for the selected robot
     renderSelectedRobotDetails() {
       const robotId = this.state.selectedRobotId;
       const data = this.state.allRobotsData[robotId];
 
-      // First, remove all robot markers from the map
+      // Remove all existing markers from the map
       for (const id in this.robotMarkers) {
-        if (this.robotMarkers[id].ekf)
+        if (this.robotMarkers[id].ekf) {
           this.map.removeLayer(this.robotMarkers[id].ekf);
-        if (this.robotMarkers[id].gps)
+        }
+        if (this.robotMarkers[id].gps) {
           this.map.removeLayer(this.robotMarkers[id].gps);
+        }
       }
+      // Fully delete markers by clearing the object
+      this.robotMarkers = {};
 
-      // Then, add back the markers for the currently selected robot
-      if (this.robotMarkers[robotId]) {
-        if (this.robotMarkers[robotId].ekf)
-          this.map.addLayer(this.robotMarkers[robotId].ekf);
-        if (this.robotMarkers[robotId].gps)
-          this.map.addLayer(this.robotMarkers[robotId].gps);
-      }
-
-      if (!data) {
+      if (data) {
+        // Recreate markers for the selected robot
+        this.updateRobotMarker(robotId);
+        this.dom.robotDetailsHeader.textContent = `Details for ${robotId}`;
+        this.dom.robotStatusSections.style.display = "block";
+        this.dom.followButton.style.display = "block";
+        // Additional details rendering can be added here as needed
+      } else {
         this.dom.robotDetailsHeader.textContent = "Select a robot to view data";
         this.dom.robotStatusSections.style.display = "none";
         this.dom.followButton.style.display = "none";
         this.missionLayer.clearLayers();
-        return;
-      }
-
-      this.dom.robotDetailsHeader.textContent = `Details for ${robotId}`;
-      this.dom.robotStatusSections.style.display = "block";
-      this.dom.followButton.style.display = "block";
-
-      const mission = data?.mission;
-      if (mission) {
-        const progressHtml = `
-              <div class="mt-2">
-                  ${mission.waypoints?.length || 0} waypoints total<br>
-                  Current target: ${mission.current_waypoint_index >= 0 ? mission.current_waypoint_index + 1 : "None"}<br>
-                  Completed: ${mission.waypoints?.filter((wp) => wp.classification === "completed").length || 0}
-              </div>`;
-        this.dom.missionProgress.innerHTML = progressHtml;
-      } else {
-        this.dom.missionProgress.innerHTML = "No active mission";
-      }
-
-      this.updateLastSeen();
-
-      // MODIFIED: Smart panning now follows the EKF position.
-      if (this.state.isFollowing && data.position && data.position.ekf) {
-        const robotLatLng = L.latLng(
-          data.position.ekf.lat,
-          data.position.ekf.lon,
-        );
-        const mapBounds = this.map.getBounds();
-
-        if (!mapBounds.contains(robotLatLng)) {
-          this.map.panTo(robotLatLng, { animate: true });
-        }
       }
     },
 
