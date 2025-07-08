@@ -34,8 +34,6 @@ def update_data():
     """API endpoint for robots to post data with GPS (mandatory) and EKF (optional) positions."""
     data = request.get_json()
 
-    # --- REFINED VALIDATION ---
-    # Check for robot_id and a valid, mandatory 'gps' object.
     if (
         not data
         or "robot_id" not in data
@@ -65,10 +63,13 @@ def update_data():
         has_waypoints_in_payload = "waypoints" in mission_payload and isinstance(
             mission_payload.get("waypoints"), list
         )
-        # Check also if the waypoints are not empty list
-        has_waypoints_in_payload = (
-            has_waypoints_in_payload and len(mission_payload["waypoints"]) > 0
-        )
+        try:
+            # Print the waypoints
+            print(
+                f"DEBUG: Waypoints on the robot {robot_id}: {data['mission']['waypoints']}"
+            )
+        except KeyError:
+            pass
 
         # 1. Handle mission registration or overwrite.
         if has_waypoints_in_payload:
