@@ -115,3 +115,14 @@ body {
     transform: translateX(280px) scale(1.05);
   }
 }
+
+.vector-pin-marker {
+  background: transparent;
+  border: none;
+}
+
+/* Ensures the SVG element scales correctly inside its container div. */
+.vector-pin-svg {
+  width: 100%;
+  height: 100%;
+}

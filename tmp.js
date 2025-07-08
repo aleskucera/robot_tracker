@@ -20,8 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
     dom: {}, // Will hold cached DOM elements
     map: null, // Will hold the Leaflet map instance
     socket: null, // Will hold the Socket.IO instance
-    // MODIFIED: robotMarkers now holds an object with separate gps and ekf markers for each robot
-    robotMarkers: {},
+    robotMarkers: {}, // Will hold the Leaflet marker instances for each robot
     missionLayer: null, // Will hold the Leaflet layer for robot missions
 
     init() {
@@ -76,6 +75,7 @@ document.addEventListener("DOMContentLoaded", () => {
         maxZoom: 22,
       });
 
+      // Add one default base layer to the map
       outdoors.addTo(this.map);
 
       const baseLayers = {
@@ -105,17 +105,21 @@ document.addEventListener("DOMContentLoaded", () => {
     },
 
     initWebSocket() {
-      this.socket = io();
+      this.socket = io(); // Assumes socket.io script is loaded in HTML
 
       this.socket.on("initial_robot_states", (data) => {
-        // Add timestamps to initial data
-        Object.values(data).forEach((robotData) => {
-          robotData.last_update = Date.now() / 1000;
-        });
-
         this.state.allRobotsData = data;
         this.renderRobotSelector();
         this.renderMission();
+
+        if (
+          data.mission &&
+          data.mission.waypoints &&
+          data.mission.waypoints.length > 0
+        ) {
+          const bounds = data.mission.waypoints.map((wp) => [wp.lat, wp.lon]);
+          this.map.fitBounds(bounds, { padding: [50, 50] });
+        }
 
         if (this.dom.robotSelector.value) {
           this.dom.robotSelector.dispatchEvent(new Event("change"));
@@ -124,7 +128,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       this.socket.on("new_robot_online", (data) => {
         const robotId = data.robot_id;
-        data.last_update = Date.now() / 1000;
         this.state.allRobotsData[robotId] = data;
 
         this.renderRobotSelector();
@@ -136,25 +139,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
         Toastify({
           text: `✅ Robot ${robotId} is now online.`,
-          duration: 3000,
+          duration: 30000,
           gravity: "bottom",
           position: "right",
           stopOnFocus: true,
-          style: { background: "linear-gradient(to right, #00b09b, #96c93d)" },
+          style: {
+            background: "linear-gradient(to right, #00b09b, #96c93d)",
+          },
         }).showToast();
       });
 
       this.socket.on("robot_update", (data) => {
         const robotId = data.robot_id;
-        // NEW: Add a timestamp to the data for the "last seen" feature
-        data.last_update = Date.now() / 1000;
         this.state.allRobotsData[robotId] = data;
-
         this.updateRobotMarker(robotId);
 
         if (robotId === this.state.selectedRobotId) {
           this.renderSelectedRobotDetails();
           this.renderMission();
+          // The conflicting fitBounds() call was removed from here.
         }
       });
 
@@ -166,14 +169,8 @@ document.addEventListener("DOMContentLoaded", () => {
           delete this.state.allRobotsData[robotId];
         }
 
-        // MODIFIED: Remove both EKF and GPS markers if they exist
         if (this.robotMarkers[robotId]) {
-          if (this.robotMarkers[robotId].ekf) {
-            this.map.removeLayer(this.robotMarkers[robotId].ekf);
-          }
-          if (this.robotMarkers[robotId].gps) {
-            this.map.removeLayer(this.robotMarkers[robotId].gps);
-          }
+          this.map.removeLayer(this.robotMarkers[robotId]);
           delete this.robotMarkers[robotId];
         }
 
@@ -185,11 +182,13 @@ document.addEventListener("DOMContentLoaded", () => {
         this.renderRobotSelector();
         Toastify({
           text: `❌ Robot ${robotId} has gone offline.`,
-          duration: 3000,
+          duration: 30000,
           gravity: "bottom",
           position: "right",
           stopOnFocus: true,
-          style: { background: "linear-gradient(to right, #ff5f6d, #ffc371)" },
+          style: {
+            background: "linear-gradient(to right, #ff5f6d, #ffc371)",
+          },
         }).showToast();
       });
     },
@@ -208,9 +207,12 @@ document.addEventListener("DOMContentLoaded", () => {
       this.state.selectedRobotId = e.target.value;
       const robotData = this.state.allRobotsData[this.state.selectedRobotId];
 
+      // First, render the details and the mission path itself
       this.renderSelectedRobotDetails();
       this.renderMission();
 
+      // --- NEW: FIT BOUNDS ON SELECTION ---
+      // Adjust the map view to show the entire mission for the newly selected robot.
       if (
         robotData &&
         robotData.mission &&
@@ -261,88 +263,30 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     },
 
-    createPinSVG(color, fillOpacity = 1) {
-      // Changed parameter name for clarity
-      const svgPath =
-        "M16 .5c-8.282 0-15 6.718-15 15 0 8.283 15 29.5 15 29.5s15-21.217 15-29.5c0-8.282-6.718-15-15-15z";
-
-      // Use the "fill-opacity" attribute instead of "opacity"
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 45.5" class="vector-pin-svg">
-      <path d="${svgPath}" fill="${color}" stroke="#fff" stroke-width="1.5" fill-opacity="${fillOpacity}" />
-    </svg>`;
-
-      return svg;
-    },
-
-    // REVISED updateRobotMarker function
     updateRobotMarker(robotId) {
       const data = this.state.allRobotsData[robotId];
-      if (!data || !data.position || !data.position.gps || !data.position.ekf) {
-        return;
-      }
+      if (!data) return;
 
-      const ekfCoords = [data.position.ekf.lat, data.position.ekf.lon];
-      const gpsCoords = [data.position.gps.lat, data.position.gps.lon];
+      const leafletCoords = [data.location.lat, data.location.lon];
 
-      // EKF Marker icon (remains fully opaque, so we don't pass a second argument)
-      const ekfIcon = L.divIcon({
-        html: this.createPinSVG("#28a745", 0.7), // The color is green for EKF
-        className: "vector-pin-marker",
-        iconSize: [28, 40],
-        iconAnchor: [14, 40],
-      });
-
-      // GPS Marker icon (we pass 0.7 for the opacity)
-      const gpsIcon = L.divIcon({
-        html: this.createPinSVG("#007bff", 0.7), // The color is blue for GPS
-        className: "vector-pin-marker",
-        iconSize: [28, 40],
-        iconAnchor: [14, 40],
-      });
-
-      // --- The rest of the function remains exactly the same ---
-      if (!this.robotMarkers[robotId]) {
-        this.robotMarkers[robotId] = { gps: null, ekf: null };
-      }
-      const markers = this.robotMarkers[robotId];
-
-      if (markers.ekf) {
-        markers.ekf.setLatLng(ekfCoords).setIcon(ekfIcon);
+      if (this.robotMarkers[robotId]) {
+        this.robotMarkers[robotId].setLatLng(leafletCoords);
       } else {
-        markers.ekf = L.marker(ekfCoords, { icon: ekfIcon }).bindPopup(
-          `<b>${robotId} (EKF)</b>`,
+        this.robotMarkers[robotId] = L.marker(leafletCoords).bindPopup(
+          `<b>${robotId}</b>`,
         );
-      }
-
-      if (markers.gps) {
-        markers.gps.setLatLng(gpsCoords).setIcon(gpsIcon);
-      } else {
-        markers.gps = L.marker(gpsCoords, {
-          icon: gpsIcon,
-          zIndexOffset: -100,
-        }).bindPopup(`<b>${robotId} (GPS)</b>`);
       }
     },
 
-    // REWRITTEN: Renders details and manages which robot's markers are visible.
     renderSelectedRobotDetails() {
       const robotId = this.state.selectedRobotId;
       const data = this.state.allRobotsData[robotId];
 
-      // First, remove all robot markers from the map
-      for (const id in this.robotMarkers) {
-        if (this.robotMarkers[id].ekf)
-          this.map.removeLayer(this.robotMarkers[id].ekf);
-        if (this.robotMarkers[id].gps)
-          this.map.removeLayer(this.robotMarkers[id].gps);
-      }
-
-      // Then, add back the markers for the currently selected robot
+      Object.values(this.robotMarkers).forEach((marker) =>
+        this.map.removeLayer(marker),
+      );
       if (this.robotMarkers[robotId]) {
-        if (this.robotMarkers[robotId].ekf)
-          this.map.addLayer(this.robotMarkers[robotId].ekf);
-        if (this.robotMarkers[robotId].gps)
-          this.map.addLayer(this.robotMarkers[robotId].gps);
+        this.map.addLayer(this.robotMarkers[robotId]);
       }
 
       if (!data) {
@@ -360,11 +304,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const mission = data?.mission;
       if (mission) {
         const progressHtml = `
-              <div class="mt-2">
-                  ${mission.waypoints?.length || 0} waypoints total<br>
-                  Current target: ${mission.current_waypoint_index >= 0 ? mission.current_waypoint_index + 1 : "None"}<br>
-                  Completed: ${mission.waypoints?.filter((wp) => wp.classification === "completed").length || 0}
-              </div>`;
+            <div class="mt-2">
+                ${mission.waypoints?.length || 0} waypoints total<br>
+                Current target: ${
+                  mission.current_waypoint_index >= 0
+                    ? mission.current_waypoint_index + 1
+                    : "None"
+                }<br>
+                Completed: ${
+                  mission.waypoints?.filter(
+                    (wp) => wp.classification === "completed",
+                  ).length || 0
+                }
+            </div>`;
         this.dom.missionProgress.innerHTML = progressHtml;
       } else {
         this.dom.missionProgress.innerHTML = "No active mission";
@@ -372,14 +324,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
       this.updateLastSeen();
 
-      // MODIFIED: Smart panning now follows the EKF position.
-      if (this.state.isFollowing && data.position && data.position.ekf) {
-        const robotLatLng = L.latLng(
-          data.position.ekf.lat,
-          data.position.ekf.lon,
-        );
+      // --- MODIFIED: SMART PANNING LOGIC ---
+      // Pan map to the robot only if following is enabled AND it's off-screen.
+      if (this.state.isFollowing && data.location) {
+        const robotLatLng = L.latLng(data.location.lat, data.location.lon);
         const mapBounds = this.map.getBounds();
 
+        // Only pan if the robot is not currently visible on the map.
         if (!mapBounds.contains(robotLatLng)) {
           this.map.panTo(robotLatLng, { animate: true });
         }
@@ -422,14 +373,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     updateLastSeen() {
       const robotId = this.state.selectedRobotId;
-      const robotData = this.state.allRobotsData[robotId];
-      if (robotId && robotData && robotData.last_update) {
+      if (robotId && this.state.allRobotsData[robotId]) {
         const secondsAgo = Math.round(
-          (Date.now() - robotData.last_update * 1000) / 1000,
+          (Date.now() - this.state.allRobotsData[robotId].last_update * 1000) /
+            1000,
         );
         this.dom.lastSeenSpan.textContent = `${secondsAgo}s ago`;
-      } else if (robotId) {
-        this.dom.lastSeenSpan.textContent = `...`;
       }
     },
   };

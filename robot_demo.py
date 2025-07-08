@@ -6,127 +6,121 @@ import requests
 
 # --- Configuration ---
 API_URL = "http://127.0.0.1:5000/api/update_data"
-ROBOT_ID = "Helhest"
+ROBOT_ID = "helhest"  # Changed to match your example
 
 # --- Simulation Parameters ---
-# How often to send an update to the server (in seconds)
-UPDATE_INTERVAL = 1
-# How long it takes the robot to travel between any two waypoints (in seconds)
+UPDATE_INTERVAL = 1.5  # How often to send an update (seconds)
 TRAVEL_TIME_BETWEEN_WAYPOINTS = 5
-# How much random "wobble" to add to the GPS signal.
-# 0.00001 is roughly 1.1 meters of noise.
 NOISE_LEVEL = 0.00003
 
 # --- The Robot's Mission Data ---
-# This is the static list of all waypoints for the mission.
+# This is the "master copy" of the mission on the robot.
+# Note: It does not contain 'classification'. The robot should not decide this.
 MISSION_WAYPOINTS = [
-    {"lat": 50.021144963451064, "lon": 14.47251319885254},
-    {"lat": 50.02116150744906, "lon": 14.47255611419678},
-    {"lat": 50.02118563408718, "lon": 14.472588300704958},
-    {"lat": 50.0212070033746, "lon": 14.472631216049196},
-    {"lat": 50.021226994010085, "lon": 14.472690224647524},
-    {"lat": 50.02124767395818, "lon": 14.472706317901613},
-    {"lat": 50.02126835389739, "lon": 14.472754597663881},
-    {"lat": 50.02127524720846, "lon": 14.47280287742615},
-    {"lat": 50.021292480481854, "lon": 14.472845792770388},
-    {"lat": 50.02130282044291, "lon": 14.472888708114626},
-    {"lat": 50.02131660705421, "lon": 14.472915530204775},
-    {"lat": 50.02133728696375, "lon": 14.472969174385073},
-    {"lat": 50.021357966864336, "lon": 14.47300672531128},
-    {"lat": 50.021364860162585, "lon": 14.47304427623749},
-    {"lat": 50.021382093403844, "lon": 14.473071098327638},
-    {"lat": 50.021388986698575, "lon": 14.473114013671877},
-    {"lat": 50.02140621993119, "lon": 14.473156929016115},
-    {"lat": 50.021413113222486, "lon": 14.473199844360353},
-    {"lat": 50.02142069583128, "lon": 14.473248124122621},
+    {"lat": 50.021144, "lon": 14.472513},
+    {"lat": 50.021161, "lon": 14.472556},
+    {"lat": 50.021185, "lon": 14.472588},
+    {"lat": 50.021207, "lon": 14.472631},
+    {"lat": 50.021226, "lon": 14.472690},
+    {"lat": 50.021247, "lon": 14.472706},
+    {"lat": 50.021268, "lon": 14.472754},
+    {"lat": 50.021275, "lon": 14.472802},
+    {"lat": 50.021292, "lon": 14.472845},
+    {"lat": 50.021302, "lon": 14.472888},
+    {"lat": 50.021316, "lon": 14.472915},
+    {"lat": 50.021337, "lon": 14.472969},
+    {"lat": 50.021357, "lon": 14.473006},
+    {"lat": 50.021364, "lon": 14.473044},
+    {"lat": 50.021382, "lon": 14.473071},
+    {"lat": 50.021388, "lon": 14.473114},
+    {"lat": 50.021406, "lon": 14.473156},
+    {"lat": 50.021413, "lon": 14.473199},
+    {"lat": 50.021420, "lon": 14.473248},
 ]
 
 
 def run_simulation():
-    """Main loop to simulate the robot's movement and send updates."""
+    """Main loop to simulate the robot's movement and send stateful updates."""
     num_waypoints = len(MISSION_WAYPOINTS)
     from_waypoint_idx = 0
+    # STATE: Does the server have our mission? Start by assuming NO.
+    server_has_mission = False
 
-    print(f"--- Starting smooth simulation for robot: {ROBOT_ID} ---")
+    print(f"--- Starting stateful simulation for robot: {ROBOT_ID} ---")
     print(f"Targeting server at: {API_URL}")
-    print(f"Sending updates every {UPDATE_INTERVAL} second(s). Press Ctrl+C to stop.")
 
     while True:
-        # Determine the start and end points for this leg of the journey
         start_wp = MISSION_WAYPOINTS[from_waypoint_idx]
         to_waypoint_idx = (from_waypoint_idx + 1) % num_waypoints
         end_wp = MISSION_WAYPOINTS[to_waypoint_idx]
 
         print(
-            f"\n--- Traveling from WP {from_waypoint_idx + 1} to WP {to_waypoint_idx + 1} ---"
+            f"\n--- Traveling from WP {from_waypoint_idx} to WP {to_waypoint_idx} ---"
         )
 
-        # Inner loop for interpolation between the two points
         for step in range(TRAVEL_TIME_BETWEEN_WAYPOINTS):
+            progress = step / TRAVEL_TIME_BETWEEN_WAYPOINTS
+
+            # --- CALCULATE POSITIONS ---
+            ekf_lat = start_wp["lat"] + (end_wp["lat"] - start_wp["lat"]) * progress
+            ekf_lon = start_wp["lon"] + (end_wp["lon"] - start_wp["lon"]) * progress
+
+            gps_lat = ekf_lat + random.uniform(-NOISE_LEVEL, NOISE_LEVEL)
+            gps_lon = ekf_lon + random.uniform(-NOISE_LEVEL, NOISE_LEVEL)
+
+            # --- BUILD PAYLOAD ---
+            payload = {
+                "robot_id": ROBOT_ID,
+                "position": {
+                    "gps": {"lat": gps_lat, "lon": gps_lon},
+                    "ekf": {"lat": ekf_lat, "lon": ekf_lon},
+                },
+                "mission": {
+                    "current_waypoint_index": to_waypoint_idx,
+                },
+            }
+
+            # If server needs the mission, add the full waypoints list to the payload
+            if not server_has_mission:
+                print("INFO: Server needs mission. Sending full waypoints list.")
+                # Send a clean copy without any client-side classification
+                payload["mission"]["waypoints"] = MISSION_WAYPOINTS
+            else:
+                print("INFO: Server has mission. Sending minimal update.")
+
+            # --- SEND REQUEST AND HANDLE RESPONSE ---
             try:
-                # --- INTERPOLATION ---
-                # Calculate how far along the path we are (e.g., 0.2 means 20% of the way)
-                progress = step / TRAVEL_TIME_BETWEEN_WAYPOINTS
+                response = requests.post(API_URL, json=payload, timeout=5)
 
-                # Calculate the interpolated latitude and longitude
-                interp_lat = (
-                    start_wp["lat"] + (end_wp["lat"] - start_wp["lat"]) * progress
-                )
-                interp_lon = (
-                    start_wp["lon"] + (end_wp["lon"] - start_wp["lon"]) * progress
-                )
+                if response.status_code == 200:
+                    # SUCCESS: Server accepted the update and has the mission.
+                    if not server_has_mission:
+                        print("✅ SUCCESS (200): Server has acknowledged the mission.")
+                        server_has_mission = True  # Set state to TRUE
 
-                # --- NOISE ---
-                # Add a small random offset to simulate GPS inaccuracy
-                noisy_lat = interp_lat + random.uniform(-NOISE_LEVEL, NOISE_LEVEL)
-                noisy_lon = interp_lon + random.uniform(-NOISE_LEVEL, NOISE_LEVEL)
+                elif response.status_code == 202:
+                    # MISSION REQUIRED: Server is asking for the waypoints.
+                    print(
+                        "⚠️ INFO (202): Server is requesting waypoints. Will send on next update."
+                    )
+                    server_has_mission = False  # Set state to FALSE
 
-                # --- MISSION STATUS ---
-                # Build the list of waypoints with updated classifications
-                updated_waypoints = []
-                for i, wp in enumerate(MISSION_WAYPOINTS):
-                    classification = "unfinished"  # Default
-                    if i < to_waypoint_idx:
-                        classification = "completed"
-                    elif i == to_waypoint_idx:
-                        classification = "current_goal"
-
-                    updated_wp = wp.copy()
-                    updated_wp["classification"] = classification
-                    updated_waypoints.append(updated_wp)
-
-                # Assemble the full payload
-                payload = {
-                    "robot_id": ROBOT_ID,
-                    "lat": noisy_lat,
-                    "lon": noisy_lon,
-                    "mission": {
-                        "waypoints": updated_waypoints,
-                        "current_waypoint_index": to_waypoint_idx,
-                    },
-                }
-
-                print(
-                    f"  Step {step+1}/{TRAVEL_TIME_BETWEEN_WAYPOINTS}: Pos({noisy_lat:.6f}, {noisy_lon:.6f})"
-                )
-
-                # Send the POST request
-                response = requests.post(API_URL, json=payload)
-                response.raise_for_status()
-
-                # Wait before sending the next update
-                time.sleep(UPDATE_INTERVAL)
+                else:
+                    # Handle other potential errors
+                    print(f"❌ ERROR ({response.status_code}): {response.text}")
+                    # If we get an error, it's safest to assume the server might have lost our state
+                    server_has_mission = False
 
             except requests.exceptions.RequestException as e:
-                print(
-                    f"❌ Error: Could not connect to server. Retrying in {UPDATE_INTERVAL}s..."
-                )
-                time.sleep(UPDATE_INTERVAL)
+                print(f"❌ NETWORK ERROR: Could not connect to server. {e}")
+                # On network error, assume we need to re-sync with the server
+                server_has_mission = False
             except KeyboardInterrupt:
                 print("\n--- Simulation stopped by user. ---")
-                return  # Exit the function and the script
+                return
 
-        # The robot has "arrived". Prepare for the next leg of the journey.
+            time.sleep(UPDATE_INTERVAL)
+
         from_waypoint_idx = to_waypoint_idx
 
 
